@@ -33,7 +33,7 @@
             // 
             // newKeyBind
             // 
-            this.newKeyBind.Location = new System.Drawing.Point(197, 244);
+            this.newKeyBind.Location = new System.Drawing.Point(260, 148);
             this.newKeyBind.Name = "newKeyBind";
             this.newKeyBind.Size = new System.Drawing.Size(138, 80);
             this.newKeyBind.TabIndex = 0;
@@ -45,7 +45,7 @@
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(9F, 20F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(725, 549);
+            this.ClientSize = new System.Drawing.Size(722, 355);
             this.Controls.Add(this.newKeyBind);
             this.KeyPreview = true;
             this.Name = "Form1";
