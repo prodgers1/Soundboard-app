@@ -4,12 +4,14 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
 using System.Drawing;
+using System.IO;
 using System.Linq;
 using System.Media;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Xml.Linq;
 
 namespace Soundboard
 {
@@ -18,30 +20,93 @@ namespace Soundboard
         private WaveOutEvent output = new WaveOutEvent();
         private bool m_Playing = false;
         private List<Key> m_Keys = new List<Key>();
+        private XDocument m_UserSettings;
 
-
+        private string m_SettingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Soundboard");
+        
         public Form1()
         {
             InitializeComponent();
             output.PlaybackStopped += StopPlaying;
-
+            Directory.CreateDirectory(m_SettingsPath);
+            InitalizeSettings();
         }
 
-        private void newKeyBind_Click(object sender, EventArgs e)
+        private void InitalizeSettings()
         {
-            using(NewKeyBindForm form = new NewKeyBindForm(m_Keys))
+            try
             {
-                if(form.ShowDialog() == DialogResult.OK)
-                {
-                    KeyboardHook hook = new KeyboardHook();
+                m_UserSettings = XDocument.Load(m_SettingsPath + @"\settings.xml");
+            }
+            catch (FileNotFoundException)
+            {
+                m_UserSettings = null;
+            }
 
-                    m_Keys = form.Keys;
-                    Key addedKey = form.addedKey;
-                    hook.KeyPressed +=
-                        new EventHandler<KeyPressedEventArgs>(hook_KeyPressed);
-                    hook.RegisterHotKey(Soundboard.ModifierKeys.Alt, addedKey.KeyToPress);
+            if(m_UserSettings != null)
+            {
+                IEnumerable<XElement> settingElements = m_UserSettings.Element("Settings").Descendants().Where(d => d.Name == "Setting");
+                foreach (XElement setting in settingElements)
+                {
+                    string keyToPress = setting.Element("Key").Value;
+                    Keys keyEnum = (Keys)Enum.Parse(typeof(Keys), keyToPress, true);
+                    string soundPath = setting.Element("SoundPath").Value;
+                    Key key = new Key(soundPath, keyEnum);
+                    BindHotkey(key);
+                    m_Keys.Add(key);
                 }
             }
+        }
+
+        private void BindHotkey(Key addedKey)
+        {
+            KeyboardHook hook = new KeyboardHook();
+            hook.KeyPressed +=
+                new EventHandler<KeyPressedEventArgs>(hook_KeyPressed);
+            hook.RegisterHotKey(Soundboard.ModifierKeys.Alt, addedKey.KeyToPress);
+        }
+
+        private void SaveToApplicationData()
+        {
+            m_UserSettings.Save(m_SettingsPath + @"\settings.xml");
+        }
+
+        private void AppendXml(Key addedKey)
+        {
+            XElement settingsElement = m_UserSettings.Element("Settings");
+            XElement existingKey = settingsElement.Descendants()
+                .Where(d => d.Name == "Setting").Descendants()
+                .Where(d => d.Name == "Key")
+                .Where(k => k.Value == addedKey.KeyToPress.ToString()).SingleOrDefault();
+
+
+            if (existingKey == null)
+            {
+                XElement setting = new XElement("Setting");
+                XElement keyElement = new XElement("Key", addedKey.KeyToPress.ToString());
+                XElement soundPathElement = new XElement("SoundPath", addedKey.PathToSound);
+                setting.Add(keyElement);
+                setting.Add(soundPathElement);
+                settingsElement.Add(setting);
+            }
+            else
+            {
+                XElement setting = existingKey.Parent;
+                setting.Element("SoundPath").Value = addedKey.PathToSound;
+            }
+        }
+
+        private void InitializeXml(Key addedKey)
+        {
+            m_UserSettings = new XDocument();
+            XElement settings = new XElement("Settings");
+            XElement setting = new XElement("Setting");
+            XElement keyElement = new XElement("Key", addedKey.KeyToPress.ToString());
+            XElement soundPathElement = new XElement("SoundPath", addedKey.PathToSound);
+            setting.Add(keyElement);
+            setting.Add(soundPathElement);
+            settings.Add(setting);
+            m_UserSettings.Add(settings);
         }
 
         private void StopPlaying(object sender, EventArgs e)
@@ -61,6 +126,53 @@ namespace Soundboard
                 output.Init(audioFile);
                 output.Play();
             }
+        }
+
+        private void saveButton_Click(object sender, EventArgs e)
+        {
+            string keyToPress = keyToPressTextBox.Text;
+            Keys key = (Keys)Enum.Parse(typeof(Keys), keyToPress, true);
+            Key newKey = new Key(soundPathText.Text, key);
+            if (m_Keys.Any(k => k.KeyToPress == key))
+            {
+                Key keyToRemove = m_Keys.Where(k => k.KeyToPress == key).Single();
+                m_Keys.Remove(keyToRemove);
+                m_Keys.Add(newKey);
+
+            }
+            else
+                m_Keys.Add(newKey);
+
+
+            BindHotkey(newKey);
+
+            if (m_UserSettings == null)
+            {
+                InitializeXml(newKey);
+            }
+            else
+            {
+                AppendXml(newKey);
+            }
+
+            SaveToApplicationData();
+
+            soundPathText.Text = "";
+            keyToPressTextBox.Text = "";
+        }
+
+        private void OpenFileButton_Click(object sender, EventArgs e)
+        {
+            if (openFileDialog1.ShowDialog() == DialogResult.OK)
+            {
+                soundPathText.Text = openFileDialog1.FileName;
+            }
+        }
+
+        private void rebindButton_Click(object sender, EventArgs e)
+        {
+            m_Keys.Clear();
+            InitalizeSettings();
         }
     }
     public sealed class KeyboardHook : IDisposable
@@ -153,7 +265,10 @@ namespace Soundboard
 
             // register the hot key.
             if (!RegisterHotKey(_window.Handle, _currentId, (uint)modifier, (uint)key))
-                throw new InvalidOperationException("Couldn’t register the hot key.");
+            {
+                UnregisterHotKey(_window.Handle, _currentId);
+                RegisterHotKey(_window.Handle, _currentId, (uint)modifier, (uint)key);
+            }
         }
 
         /// <summary>
